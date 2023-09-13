@@ -10,8 +10,10 @@ pipeline {
         stage('sync repos') {
             steps {
                 script {
-                    findSubFolder("${env.WORKSPACE}")
-
+                    def fileName = "${env.JOB_BASE_NAME}/repos"
+                    def repos = readFile(file: fileName).split("\n")
+                    for (String repo: repos) {
+                        copyArtifacts(projectName: "repos/${repo}")
                     }
                 }
             }
@@ -38,11 +40,5 @@ pipeline {
             archiveArtifacts artifacts: 'build.tar.gz'
             sh 'make push'
         }
-    }
-}
-
-def findSubFolder(String base_folder) {
-    dir(base_folder) {
-        findFiles().findAll { item -> item.directory }
     }
 }
