@@ -26,7 +26,8 @@ stage3-config := $(machine)/stage3
 platform-config := $(machine)/arch
 
 
-container: stage3-image := docker.io/gentoo/stage3:$(shell cat $(stage3-config))
+#container: stage3-image := docker.io/gentoo/stage3:$(shell cat $(stage3-config))
+container: stage3-image := docker.io/gentoo/stage3:amd64-hardened-openrc
 container: platform := linux/$(shell cat $(platform-config))
 container: $(stage3-config) $(platform-config)  ## Build the container
 	-buildah rm $(container)
