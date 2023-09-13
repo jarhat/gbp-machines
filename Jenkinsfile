@@ -10,6 +10,8 @@ pipeline {
         stage('sync repos') {
             steps {
                 script {
+                    def directories = getDirectories("$WORKSPACE")
+                    echo "$directories"
                     def fileName = "${env.JOB_BASE_NAME}/repos"
                     def repos = readFile(file: fileName).split("\n")
                     for (String repo: repos) {
