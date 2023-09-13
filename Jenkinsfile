@@ -14,7 +14,7 @@ pipeline {
                     def repos = readFile(file: fileName).split("\n")
                     for (String repo: repos) {
                         echo "repos/${repo}"
-                        copyArtifacts(projectName: "base")
+                        copyArtifacts(projectName: "Gentoo/base")
                     }
                 }
             }
