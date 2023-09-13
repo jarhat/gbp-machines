@@ -14,6 +14,7 @@ chroot := ls -larp $(machine)/configs; http_proxy=http://192.168.0.1:8081 https_
   --
 config := $(notdir $(wildcard $(machine)/configs/*))
 config_targets := $(config:=.copy_config)
+test := echo $config_targets
 repos_dir := /var/db/repos
 repos := $(shell cat $(machine)/repos)
 repos_targets := $(repos:=.add_repo)
