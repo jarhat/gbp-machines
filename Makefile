@@ -20,7 +20,7 @@ repos_targets := $(repos:=.add_repo)
 stage4 := stage4.tar.xz
 
 # Stage3 image tag to use.  See https://hub.docker.com/r/gentoo/stage3/tags
-stage3-config := $(machine)/stage3
+stage3-config := $(machine)/stage3:amd64-hardened-openrc
 
 # Container platform to use (less the "linux/" part)
 platform-config := $(machine)/arch
@@ -81,6 +81,7 @@ archive: $(archive)  ## Create the build artifact
 $(archive): gbp.json
 	tar cvf build.tar --files-from /dev/null
 	tar --append -f build.tar -C $(machine)/configs .
+	ls -larp $(machine)/configs
 	buildah copy $(container) gbp.json /var/db/repos/gbp.json
 	buildah unshare --mount CHROOT=$(container) sh -c 'tar --append -f build.tar -C $${CHROOT}/var/db repos'
 	buildah unshare --mount CHROOT=$(container) sh -c 'tar --append -f build.tar -C $${CHROOT}/var/cache binpkgs'
