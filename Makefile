@@ -52,7 +52,6 @@ gbp.json: world
 %.copy_config: $$(files) container
 	buildah unshare --mount CHROOT=$(container) sh -c 'rm -rf $$CHROOT/$(dirname)'
 	buildah copy $(container) "$(CURDIR)"/$(machine)/configs/$* /$(dirname)
-	buildah unshare --mount CHROOT=$(container) sh -c 'ls -larp $$CHROOT/$(dirname); pwd $$CHROOT/$(dirname)'
 	touch $@
 
 
