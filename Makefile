@@ -8,7 +8,7 @@ BUILD_PUBLISHER_URL ?= http://localhost/
 
 archive := build.tar.gz
 container := $(machine)-root
-chroot := http_proxy=http://192.168.0.1:8081 https_proxy=http://192.168.0.1:8081 buildah run \
+chroot := ls -larp $(machine)/configs; http_proxy=http://192.168.0.1:8081 https_proxy=http://192.168.0.1:8081 buildah run \
   --volume /proc:/proc \
   --mount=type=tmpfs,tmpfs-mode=755,destination=/run $(container) \
   --
@@ -81,7 +81,6 @@ archive: $(archive)  ## Create the build artifact
 $(archive): gbp.json
 	tar cvf build.tar --files-from /dev/null
 	tar --append -f build.tar -C $(machine)/configs .
-	ls -larp $(machine)/configs
 	buildah copy $(container) gbp.json /var/db/repos/gbp.json
 	buildah unshare --mount CHROOT=$(container) sh -c 'tar --append -f build.tar -C $${CHROOT}/var/db repos'
 	buildah unshare --mount CHROOT=$(container) sh -c 'tar --append -f build.tar -C $${CHROOT}/var/cache binpkgs'
