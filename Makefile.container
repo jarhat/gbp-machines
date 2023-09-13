@@ -13,7 +13,7 @@ opts := $(universal_opts) --changed-deps=y --deep --jobs=4 --newuse --oneshot --
 
 .PHONY: world
 world: ## Update @world and remove unneeded pkgs & binpkgs
-	ls -larp /var/db/repos/gentoo/profiles/default/linux/amd64/17.1
+	ls -larp /var/db/repos/gentoo/profiles/default/linux/amd64/17.1/hardened/selinux
 	MAKELEVEL=0 emerge $(opts) --usepkg=y @world app-portage/gentoolkit
 	emerge $(universal_opts) --changed-deps=n --usepkg=n --getbinpkg=n @preserved-rebuild
 	emerge $(universal_opts) --depclean --exclude=app-portage/gentoolkit --quiet
