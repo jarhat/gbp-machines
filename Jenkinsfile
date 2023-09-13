@@ -13,7 +13,7 @@ pipeline {
                     def fileName = "${env.JOB_BASE_NAME}/repos"
                     def repos = readFile(file: fileName).split("\n")
                     for (String repo: repos) {
-                        echo $repo
+                        echo "${repo}"
                         copyArtifacts(projectName: "repos/${repo}")
                     }
                 }
