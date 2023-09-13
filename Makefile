@@ -20,7 +20,7 @@ repos_targets := $(repos:=.add_repo)
 stage4 := stage4.tar.xz
 
 # Stage3 image tag to use.  See https://hub.docker.com/r/gentoo/stage3/tags
-stage3-config := $(machine)/stage3:amd64-hardened-openrc
+stage3-config := $(machine)/stage3
 
 # Container platform to use (less the "linux/" part)
 platform-config := $(machine)/arch
