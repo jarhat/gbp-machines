@@ -30,7 +30,7 @@ container: stage3-image := docker.io/gentoo/stage3:$(shell cat $(stage3-config))
 container: platform := linux/$(shell cat $(platform-config))
 container: $(stage3-config) $(platform-config)  ## Build the container
 	-buildah rm $(container)
-	proxychains buildah --name $(container) from --platform=$(platform) --cap-add=CAP_SYS_PTRACE $(stage3-image)
+	buildah --http-proxy http://192.168.0.1:8081 --name $(container) from --platform=$(platform) --cap-add=CAP_SYS_PTRACE $(stage3-image)
 	buildah config --env FEATURES="-cgroup -ipc-sandbox -mount-sandbox -network-sandbox -pid-sandbox -userfetch -usersync binpkg-multi-instance buildpkg noinfo unmerge-orphans" $(container)
 	touch $@
 
