@@ -8,7 +8,7 @@ BUILD_PUBLISHER_URL ?= http://localhost/
 
 archive := build.tar.gz
 container := $(machine)-root
-chroot := buildah run \
+chroot := http_proxy=http://192.168.0.1:8081 https_proxy=http://192.168.0.1:8081 buildah run \
   --volume /proc:/proc \
   --mount=type=tmpfs,tmpfs-mode=755,destination=/run $(container) \
   --
