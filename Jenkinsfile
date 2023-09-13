@@ -10,11 +10,10 @@ pipeline {
         stage('sync repos') {
             steps {
                 script {
-                    def directories = getDirectories("$WORKSPACE")
-                    echo "$directories"
                     def fileName = "${env.JOB_BASE_NAME}/repos"
                     def repos = readFile(file: fileName).split("\n")
                     for (String repo: repos) {
+                        echo "repos/${repo}"
                         copyArtifacts(projectName: "repos/${repo}")
                     }
                 }
@@ -43,14 +42,4 @@ pipeline {
             sh 'make push'
         }
     }
-}
-
-@NonCPS
-def getDirectories(path) {
-    def dir = new File(path)
-    def dirs = []
-    dir.traverse(type: groovy.io.FileType.DIRECTORIES, maxDepth: -1) { d ->
-        dirs.add(d) 
-    }
-    return dirs
 }
