@@ -12,9 +12,10 @@ pipeline {
                 script {
                     def fileName = "${env.JOB_BASE_NAME}/repos"
                     def repos = readFile(file: fileName).split("\n")
+                    copyArtifacts(projectName: "Gentoo/base/base")
+
                     for (String repo: repos) {
                         echo "repos/${repo}"
-                        copyArtifacts(projectName: "Gentoo/base")
                     }
                 }
             }
