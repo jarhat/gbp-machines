@@ -30,9 +30,9 @@ platform-config := $(machine)/arch
 container: stage3-image := docker.io/gentoo/stage3:$(shell cat $(stage3-config))
 container: platform := linux/$(shell cat $(platform-config))
 container: $(stage3-config) $(platform-config)  ## Build the container
-	-buildah rm $(container)
+	-buildah --storage-driver=btrfs rm $(container)
 	http_proxy=http://192.168.0.1:8081 https_proxy=http://192.168.0.1:8081 buildah --storage-driver=btrfs --name $(container) from --platform=$(platform) --cap-add=CAP_SYS_PTRACE $(stage3-image)
-	buildah config --env FEATURES="-cgroup -ipc-sandbox -mount-sandbox -network-sandbox -pid-sandbox -userfetch -usersync binpkg-multi-instance buildpkg noinfo unmerge-orphans" $(container)
+	buildah --storage-driver=btrfs config --env FEATURES="-cgroup -ipc-sandbox -mount-sandbox -network-sandbox -pid-sandbox -userfetch -usersync binpkg-multi-instance buildpkg noinfo unmerge-orphans" $(container)
 	touch $@
 
 
@@ -42,8 +42,8 @@ gbp.json: world
 
 
 %.add_repo: %-repo.tar.gz container
-	buildah unshare --mount CHROOT=$(container) sh -c 'rm -rf $$CHROOT$(repos_dir)/$*'
-	buildah add $(container) $(CURDIR)/$< $(repos_dir)/$*
+	buildah --storage-driver=btrfs unshare --mount CHROOT=$(container) sh -c 'rm -rf $$CHROOT$(repos_dir)/$*'
+	buildah --storage-driver=btrfs add $(container) $(CURDIR)/$< $(repos_dir)/$*
 	touch $@
 
 
@@ -51,8 +51,8 @@ gbp.json: world
 %.copy_config: dirname = $(subst -,/,$*)
 %.copy_config: files = $(shell find $(machine)/configs/$* ! -type l -print)
 %.copy_config: $$(files) container
-	buildah unshare --mount CHROOT=$(container) sh -c 'rm -rf $$CHROOT/$(dirname)'
-	buildah copy $(container) "$(CURDIR)"/$(machine)/configs/$* /$(dirname)
+	buildah --storage-driver=btrfs unshare --mount CHROOT=$(container) sh -c 'rm -rf $$CHROOT/$(dirname)'
+	buildah --storage-driver=btrfs copy $(container) "$(CURDIR)"/$(machine)/configs/$* /$(dirname)
 	touch $@
 
 
@@ -66,13 +66,13 @@ world: chroot  ## Update @world and remove unneeded pkgs & binpkgs
 
 
 packages: world
-	buildah unshare --mount CHROOT=$(container) sh -c 'touch -r $${CHROOT}/var/cache/binpkgs/Packages $@'
+	buildah --storage-driver=btrfs unshare --mount CHROOT=$(container) sh -c 'touch -r $${CHROOT}/var/cache/binpkgs/Packages $@'
 
 
 container.img: packages
-	buildah commit $(container) $(machine):$(build)
+	buildah --storage-driver=btrfs commit $(container) $(machine):$(build)
 	rm -f $@
-	buildah push $(machine):$(build) docker-archive:"$(CURDIR)"/$@:$(machine):$(build)
+	buildah --storage-driver=btrfs push $(machine):$(build) docker-archive:"$(CURDIR)"/$@:$(machine):$(build)
 
 
 .PHONY: archive
@@ -82,16 +82,16 @@ archive: $(archive)  ## Create the build artifact
 $(archive): gbp.json
 	tar cvf build.tar --files-from /dev/null
 	tar --append -f build.tar -C $(machine)/configs .
-	buildah copy $(container) gbp.json /var/db/repos/gbp.json
-	buildah unshare --mount CHROOT=$(container) sh -c 'tar --append -f build.tar -C $${CHROOT}/var/db repos'
-	buildah unshare --mount CHROOT=$(container) sh -c 'tar --append -f build.tar -C $${CHROOT}/var/cache binpkgs'
+	buildah --storage-driver=btrfs copy $(container) gbp.json /var/db/repos/gbp.json
+	buildah --storage-driver=btrfs unshare --mount CHROOT=$(container) sh -c 'tar --append -f build.tar -C $${CHROOT}/var/db repos'
+	buildah --storage-driver=btrfs unshare --mount CHROOT=$(container) sh -c 'tar --append -f build.tar -C $${CHROOT}/var/cache binpkgs'
 	rm -f $@
 	gzip build.tar
 
 
 logs.tar.gz: chroot
 	tar cvf logs.tar --files-from /dev/null
-	buildah unshare --mount CHROOT=$(container) sh -c 'test -d $${CHROOT}/var/tmp/portage && cd $${CHROOT}/var/tmp/portage && find . -name build.log | tar --append -f $(CURDIR)/logs.tar -T-'
+	buildah --storage-driver=btrfs unshare --mount CHROOT=$(container) sh -c 'test -d $${CHROOT}/var/tmp/portage && cd $${CHROOT}/var/tmp/portage && find . -name build.log | tar --append -f $(CURDIR)/logs.tar -T-'
 	rm -f $@
 	gzip logs.tar
 
