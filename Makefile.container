@@ -13,8 +13,9 @@ opts := $(universal_opts) --changed-deps=y --deep --jobs=4 --newuse --oneshot --
 
 .PHONY: world
 world: ## Update @world and remove unneeded pkgs & binpkgs
-	rm -f /etc/portage/make.profile 
-	ln -s /var/db/repos/gentoo/profiles/default/linux/amd64/23.0/hardened/selinux /etc/portage/make.profile
+	rm -f /etc/portage/make.profile
+        ls -larp /var/db/repos/gentoo/profiles/default/linux/amd64/
+	ln -s /var/db/repos/gentoo/profiles/default/linux/amd64/17.0/hardened/selinux /etc/portage/make.profile
 	MAKELEVEL=0 emerge $(opts) --usepkg=y @world app-portage/gentoolkit
 	emerge $(universal_opts) --changed-deps=n --usepkg=n --getbinpkg=n @preserved-rebuild
 	emerge $(universal_opts) --depclean --exclude=app-portage/gentoolkit --quiet
