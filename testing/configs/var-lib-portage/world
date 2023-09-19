@@ -3,4 +3,4 @@ mail-filter/spamassassin
 net-proxy/squid
 net-vpn/libreswan
 
-sys-kernel/vanilla-source
+sys-kernel/vanilla-sources 
