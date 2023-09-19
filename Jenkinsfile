@@ -14,7 +14,7 @@ pipeline {
                     def repos = readFile(file: fileName).split("\n")
                     for (String repo: repos) {
                         echo "${repo}"
-                        sh 'ls -larp'
+                        sh 'git checkout testing'
                         copyArtifacts(projectName: "repos/${repo}")
                     }
                 }
