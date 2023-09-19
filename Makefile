@@ -33,6 +33,7 @@ container: $(stage3-config) $(platform-config)  ## Build the container
 	-buildah --storage-driver=btrfs rm $(container)
 	http_proxy=http://192.168.0.1:8081 https_proxy=http://192.168.0.1:8081 buildah --storage-driver=btrfs --name $(container) from --platform=$(platform) --cap-add=CAP_SYS_PTRACE $(stage3-image)
 	buildah --storage-driver=btrfs config --env FEATURES="-cgroup -ipc-sandbox -mount-sandbox -network-sandbox -pid-sandbox -userfetch -usersync binpkg-multi-instance buildpkg noinfo unmerge-orphans" $(container)
+	ls -larp
 	touch $@
 
 
