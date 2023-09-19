@@ -44,7 +44,7 @@ gbp.json: world
 %.add_repo: %-repo.tar.gz container
 	buildah --storage-driver=btrfs unshare --mount CHROOT=$(container) sh -c 'rm -rf $$CHROOT$(repos_dir)/$*'
 	buildah --storage-driver=btrfs add $(container) $(CURDIR)/$< $(repos_dir)/$*
-	ls -larp
+	buildah --storage-driver=btrfs unshare --mount CHROOT=$(container) sh -c 'cd $$CHROOT$(repos_dir)/ && git checkout testing'
 	touch $@
 
 
