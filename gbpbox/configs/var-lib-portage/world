@@ -9,4 +9,4 @@ net-misc/rabbitmq-server
 net-misc/rsync
 www-servers/nginx
 
-sys-kernel/vanilla-sources
+sys-kernel/vanilla-sources:6.5.3
