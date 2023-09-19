@@ -15,7 +15,6 @@ pipeline {
                     for (String repo: repos) {
                         echo "${repo}"
                         copyArtifacts(projectName: "repos/${repo}")
-                        sh 'find . -type d -name ".git"'
                     }
                 }
             }
