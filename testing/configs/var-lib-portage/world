@@ -2,5 +2,6 @@ app-containers/podman
 mail-filter/spamassassin
 net-proxy/squid
 net-vpn/libreswan
+www-servers/nginx
 
 sys-kernel/vanilla-sources 
