@@ -8,3 +8,5 @@ dev-vcs/git
 net-misc/rabbitmq-server
 net-misc/rsync
 www-servers/nginx
+
+sys-kernel/vanilla-sources
