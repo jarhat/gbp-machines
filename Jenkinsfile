@@ -14,8 +14,8 @@ pipeline {
                     def repos = readFile(file: fileName).split("\n")
                     for (String repo: repos) {
                         echo "${repo}"
-                        sh 'find . -type d -name "vanilla-sources"'
                         copyArtifacts(projectName: "repos/${repo}")
+                        sh 'find . -type d -name "vanilla-sources"'
                     }
                 }
             }
