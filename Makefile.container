@@ -8,7 +8,7 @@ EMERGE_WARNING_DELAY := 0
 export CLEAN_DELAY EMERGE_WARNING_DELAY
 
 universal_opts := --color=n --keep-going=n --nospinner --with-bdeps=y
-opts := $(universal_opts) --changed-deps=y --deep --jobs=4 --newuse --oneshot --update --verbose
+opts := $(universal_opts) --changed-deps=y --deep --jobs=4 --newuse --oneshot --update --verbose --tree
 
 
 .PHONY: world
