@@ -1,0 +1,770 @@
+diff --git a/gcc/c-family/c-opts.cc b/gcc/c-family/c-opts.cc
+index d9f55f45e03..004e37be9c0 100644
+--- a/gcc/c-family/c-opts.cc
++++ b/gcc/c-family/c-opts.cc
+@@ -1514,6 +1514,9 @@ c_finish_options (void)
+       cb_file_change (parse_in, cmd_map);
+       linemap_line_start (line_table, 0, 1);
+ 
++      bool fortify_seen_p = false;
++      bool cxx_assert_seen_p = false;
++
+       /* All command line defines must have the same location.  */
+       cpp_force_token_locations (parse_in, line_table->highest_line);
+       for (size_t i = 0; i < deferred_count; i++)
+@@ -1531,6 +1534,32 @@ c_finish_options (void)
+ 	      else
+ 		cpp_assert (parse_in, opt->arg);
+ 	    }
++
++	  if (UNLIKELY (flag_hardened)
++	      && (opt->code == OPT_D || opt->code == OPT_U))
++	    {
++	      if (!fortify_seen_p)
++		fortify_seen_p
++		  = (!strncmp (opt->arg, "_FORTIFY_SOURCE", 15)
++		     && (opt->arg[15] == '\0' || opt->arg[15] == '='));
++	      if (!cxx_assert_seen_p)
++		cxx_assert_seen_p
++		  = (!strncmp (opt->arg, "_GLIBCXX_ASSERTIONS", 19)
++		     && (opt->arg[19] == '\0' || opt->arg[19] == '='));
++	    }
++	}
++
++      if (flag_hardened)
++	{
++	  if (!fortify_seen_p && optimize > 0)
++	    {
++	      if (TARGET_GLIBC_MAJOR == 2 && TARGET_GLIBC_MINOR >= 35)
++		cpp_define (parse_in, "_FORTIFY_SOURCE=3");
++	      else
++		cpp_define (parse_in, "_FORTIFY_SOURCE=2");
++	    }
++	  if (!cxx_assert_seen_p)
++	    cpp_define (parse_in, "_GLIBCXX_ASSERTIONS");
+ 	}
+ 
+       cpp_stop_forcing_token_locations (parse_in);
+diff --git a/gcc/common.opt b/gcc/common.opt
+index f137a1f81ac..cc6238bd656 100644
+--- a/gcc/common.opt
++++ b/gcc/common.opt
+@@ -1827,6 +1827,10 @@ fharden-conditional-branches
+ Common Var(flag_harden_conditional_branches) Optimization
+ Harden conditional branches by checking reversed conditions.
+ 
++fhardened
++Common Driver Var(flag_hardened)
++Enable various security-relevant flags.
++
+ ; Nonzero means ignore `#ident' directives.  0 means handle them.
+ ; Generate position-independent code for executables if possible
+ ; On SVR4 targets, it also controls whether or not to emit a
+diff --git a/gcc/config.in b/gcc/config.in
+index f0071456f03..54c4999f36d 100644
+--- a/gcc/config.in
++++ b/gcc/config.in
+@@ -1670,6 +1670,12 @@
+ #endif
+ 
+ 
++/* Define 0/1 if your linker supports -z now */
++#ifndef USED_FOR_TARGET
++#undef HAVE_LD_NOW_SUPPORT
++#endif
++
++
+ /* Define if your PowerPC64 linker only needs function descriptor syms. */
+ #ifndef USED_FOR_TARGET
+ #undef HAVE_LD_NO_DOT_SYMS
+@@ -1713,6 +1719,12 @@
+ #endif
+ 
+ 
++/* Define 0/1 if your linker supports -z relro */
++#ifndef USED_FOR_TARGET
++#undef HAVE_LD_RELRO_SUPPORT
++#endif
++
++
+ /* Define if your linker links a mix of read-only and read-write sections into
+    a read-write section. */
+ #ifndef USED_FOR_TARGET
+diff --git a/gcc/config/bpf/bpf.cc b/gcc/config/bpf/bpf.cc
+index 437bd652de3..41dc7fd3dae 100644
+--- a/gcc/config/bpf/bpf.cc
++++ b/gcc/config/bpf/bpf.cc
+@@ -70,6 +70,7 @@ along with GCC; see the file COPYING3.  If not see
+ #include "gimplify-me.h"
+ 
+ #include "core-builtins.h"
++#include "opts.h"
+ 
+ /* Per-function machine data.  */
+ struct GTY(()) machine_function
+@@ -250,9 +251,10 @@ bpf_option_override (void)
+   /* Disable -fstack-protector as it is not supported in BPF.  */
+   if (flag_stack_protect)
+     {
+-      inform (input_location,
+-              "%<-fstack-protector%> does not work "
+-	      "on this architecture");
++      if (!flag_stack_protector_set_by_fhardened_p)
++	inform (input_location,
++		"%<-fstack-protector%> does not work "
++		"on this architecture");
+       flag_stack_protect = 0;
+     }
+ 
+diff --git a/gcc/config/i386/i386-options.cc b/gcc/config/i386/i386-options.cc
+index e47f9ed5d5f..963593bcd27 100644
+--- a/gcc/config/i386/i386-options.cc
++++ b/gcc/config/i386/i386-options.cc
+@@ -3024,10 +3024,19 @@ ix86_option_override_internal (bool main_args_p,
+         = build_target_option_node (opts, opts_set);
+     }
+ 
++  const bool cf_okay_p = (TARGET_64BIT || TARGET_CMOV);
++  /* When -fhardened, enable -fcf-protection=full, but only when it's
++     compatible with this target, and when it wasn't already specified
++     on the command line.  */
++  if (opts->x_flag_hardened
++      && cf_okay_p
++      && opts->x_flag_cf_protection == CF_NONE)
++    opts->x_flag_cf_protection = CF_FULL;
++
+   if (opts->x_flag_cf_protection != CF_NONE)
+     {
+       if ((opts->x_flag_cf_protection & CF_BRANCH) == CF_BRANCH
+-	  && !TARGET_64BIT && !TARGET_CMOV)
++	  && !cf_okay_p)
+ 	error ("%<-fcf-protection%> is not compatible with this target");
+ 
+       opts->x_flag_cf_protection
+diff --git a/gcc/configure b/gcc/configure
+index 07e8a64afbb..9234a60636a 100755
+--- a/gcc/configure
++++ b/gcc/configure
+@@ -32602,7 +32602,7 @@ if test x"$ld_is_gold" = xno; then
+       ld_bndplt_support=yes
+     fi
+   elif test x$gcc_cv_ld != x; then
+-    # Check if linker supports -a bndplt option
++    # Check if linker supports -z bndplt option
+     if $gcc_cv_ld --help 2>&1 | grep -- '-z bndplt' > /dev/null; then
+       ld_bndplt_support=yes
+     fi
+@@ -32731,6 +32731,54 @@ $as_echo "#define ENABLE_S390_EXCESS_FLOAT_PRECISION 1" >>confdefs.h
+   ;;
+ esac
+ 
++# Check if the linker supports '-z now'
++ld_now_support=no
++{ $as_echo "$as_me:${as_lineno-$LINENO}: checking linker -z now option" >&5
++$as_echo_n "checking linker -z now option... " >&6; }
++if test x"$ld_is_gold" = xyes; then
++  ld_now_support=yes
++elif test $in_tree_ld = yes ; then
++  if test "$gcc_cv_gld_major_version" -eq 2 -a "$gcc_cv_gld_minor_version" -ge 14 -o "$gcc_cv_gld_major_version" -gt 2; then
++    ld_now_support=yes
++  fi
++elif test x$gcc_cv_ld != x; then
++  # Check if linker supports -z now
++  if $gcc_cv_ld --help 2>&1 | grep -- '-z now' > /dev/null; then
++    ld_now_support=yes
++  fi
++fi
++
++cat >>confdefs.h <<_ACEOF
++#define HAVE_LD_NOW_SUPPORT `if test x"$ld_now_support" = xyes; then echo 1; else echo 0; fi`
++_ACEOF
++
++{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ld_now_support" >&5
++$as_echo "$ld_now_support" >&6; }
++
++# Check if the linker supports '-z relro'
++ld_relro_support=no
++{ $as_echo "$as_me:${as_lineno-$LINENO}: checking linker -z relro option" >&5
++$as_echo_n "checking linker -z relro option... " >&6; }
++if test x"$ld_is_gold" = xyes; then
++  ld_relro_support=yes
++elif test $in_tree_ld = yes ; then
++  if test "$gcc_cv_gld_major_version" -eq 2 -a "$gcc_cv_gld_minor_version" -ge 15 -o "$gcc_cv_gld_major_version" -gt 2; then
++    ld_relro_support=yes
++  fi
++elif test x$gcc_cv_ld != x; then
++  # Check if linker supports -z relro
++  if $gcc_cv_ld --help 2>&1 | grep -- '-z relro' > /dev/null; then
++    ld_relro_support=yes
++  fi
++fi
++
++cat >>confdefs.h <<_ACEOF
++#define HAVE_LD_RELRO_SUPPORT `if test x"$ld_relro_support" = xyes; then echo 1; else echo 0; fi`
++_ACEOF
++
++{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ld_relro_support" >&5
++$as_echo "$ld_relro_support" >&6; }
++
+ # Configure the subdirectories
+ # AC_CONFIG_SUBDIRS($subdirs)
+ 
+diff --git a/gcc/configure.ac b/gcc/configure.ac
+index cb4be11facd..950a3f51370 100644
+--- a/gcc/configure.ac
++++ b/gcc/configure.ac
+@@ -7623,7 +7623,7 @@ if test x"$ld_is_gold" = xno; then
+       ld_bndplt_support=yes
+     fi
+   elif test x$gcc_cv_ld != x; then
+-    # Check if linker supports -a bndplt option
++    # Check if linker supports -z bndplt option
+     if $gcc_cv_ld --help 2>&1 | grep -- '-z bndplt' > /dev/null; then
+       ld_bndplt_support=yes
+     fi
+@@ -7724,6 +7724,46 @@ standards-compatible mode on s390 targets.])
+   ;;
+ esac
+ 
++# Check if the linker supports '-z now'
++ld_now_support=no
++AC_MSG_CHECKING(linker -z now option)
++if test x"$ld_is_gold" = xyes; then
++  ld_now_support=yes
++elif test $in_tree_ld = yes ; then
++  if test "$gcc_cv_gld_major_version" -eq 2 -a "$gcc_cv_gld_minor_version" -ge 14 -o "$gcc_cv_gld_major_version" -gt 2; then
++    ld_now_support=yes
++  fi
++elif test x$gcc_cv_ld != x; then
++  # Check if linker supports -z now
++  if $gcc_cv_ld --help 2>&1 | grep -- '-z now' > /dev/null; then
++    ld_now_support=yes
++  fi
++fi
++AC_DEFINE_UNQUOTED(HAVE_LD_NOW_SUPPORT,
++  [`if test x"$ld_now_support" = xyes; then echo 1; else echo 0; fi`],
++  [Define 0/1 if your linker supports -z now])
++AC_MSG_RESULT($ld_now_support)
++
++# Check if the linker supports '-z relro'
++ld_relro_support=no
++AC_MSG_CHECKING(linker -z relro option)
++if test x"$ld_is_gold" = xyes; then
++  ld_relro_support=yes
++elif test $in_tree_ld = yes ; then
++  if test "$gcc_cv_gld_major_version" -eq 2 -a "$gcc_cv_gld_minor_version" -ge 15 -o "$gcc_cv_gld_major_version" -gt 2; then
++    ld_relro_support=yes
++  fi
++elif test x$gcc_cv_ld != x; then
++  # Check if linker supports -z relro
++  if $gcc_cv_ld --help 2>&1 | grep -- '-z relro' > /dev/null; then
++    ld_relro_support=yes
++  fi
++fi
++AC_DEFINE_UNQUOTED(HAVE_LD_RELRO_SUPPORT,
++  [`if test x"$ld_relro_support" = xyes; then echo 1; else echo 0; fi`],
++  [Define 0/1 if your linker supports -z relro])
++AC_MSG_RESULT($ld_relro_support)
++
+ # Configure the subdirectories
+ # AC_CONFIG_SUBDIRS($subdirs)
+ 
+diff --git a/gcc/doc/invoke.texi b/gcc/doc/invoke.texi
+index 03d93e6b185..ecd81c113ef 100644
+--- a/gcc/doc/invoke.texi
++++ b/gcc/doc/invoke.texi
+@@ -640,7 +640,7 @@ Objective-C and Objective-C++ Dialects}.
+ -fasan-shadow-offset=@var{number}  -fsanitize-sections=@var{s1},@var{s2},...
+ -fsanitize-undefined-trap-on-error  -fbounds-check
+ -fcf-protection=@r{[}full@r{|}branch@r{|}return@r{|}none@r{|}check@r{]}
+--fharden-compares -fharden-conditional-branches
++-fharden-compares -fharden-conditional-branches -fhardened
+ -fstack-protector  -fstack-protector-all  -fstack-protector-strong
+ -fstack-protector-explicit  -fstack-check
+ -fstack-limit-register=@var{reg}  -fstack-limit-symbol=@var{sym}
+@@ -17369,6 +17369,33 @@ condition, and to call @code{__builtin_trap} if the result is
+ unexpected.  Use with @samp{-fharden-compares} to cover all
+ conditionals.
+ 
++@opindex fhardened
++@item -fhardened
++Enable a set of flags for C and C++ that improve the security of the
++generated code without affecting its ABI.  The precise flags enabled
++may change between major releases of GCC, but are currently:
++
++@gccoptlist{
++-D_FORTIFY_SOURCE=3
++-D_GLIBCXX_ASSERTIONS
++-ftrivial-auto-var-init=pattern
++-fPIE  -pie  -Wl,-z,relro,-z,now
++-fstack-protector-strong
++-fstack-clash-protection
++-fcf-protection=full @r{(x86 GNU/Linux only)}
++}
++
++The list of options enabled by @option{-fhardened} can be generated using
++the @option{--help=hardened} option.
++
++When the system glibc is older than 2.35, @option{-D_FORTIFY_SOURCE=2}
++is used instead.
++
++@option{-fhardened} only enables a particular option if it wasn't
++already specified anywhere on the command line.  For instance,
++@option{-fhardened} @option{-fstack-protector} will only enable
++@option{-fstack-protector}, but not @option{-fstack-protector-strong}.
++
+ @opindex fstack-protector
+ @item -fstack-protector
+ Emit extra code to check for buffer overflows, such as stack smashing
+diff --git a/gcc/gcc.cc b/gcc/gcc.cc
+index a9dd0eb655c..db87c400c02 100644
+--- a/gcc/gcc.cc
++++ b/gcc/gcc.cc
+@@ -302,6 +302,13 @@ static size_t dumpdir_length = 0;
+    driver added to dumpdir after dumpbase or linker output name.  */
+ static bool dumpdir_trailing_dash_added = false;
+ 
++/* True if -r, -shared, -pie, or -no-pie were specified on the command
++   line.  */
++static bool any_link_options_p;
++
++/* True if -static was specified on the command line.  */
++static bool static_p;
++
+ /* Basename of dump and aux outputs, computed from dumpbase (given or
+    derived from output name), to override input_basename in non-%w %b
+    et al.  */
+@@ -4597,10 +4604,20 @@ driver_handle_option (struct gcc_options *opts,
+       save_switch ("-o", 1, &arg, validated, true);
+       return true;
+ 
+-#ifdef ENABLE_DEFAULT_PIE
+     case OPT_pie:
++#ifdef ENABLE_DEFAULT_PIE
+       /* -pie is turned on by default.  */
++      validated = true;
+ #endif
++    case OPT_r:
++    case OPT_shared:
++    case OPT_no_pie:
++      any_link_options_p = true;
++      break;
++
++    case OPT_static:
++      static_p = true;
++      break;
+ 
+     case OPT_static_libgcc:
+     case OPT_shared_libgcc:
+@@ -4976,6 +4993,26 @@ process_command (unsigned int decoded_options_count,
+ #endif
+     }
+ 
++  /* TODO: check if -static -pie works and maybe use it.  */
++  if (flag_hardened && !any_link_options_p && !static_p)
++    {
++#ifdef HAVE_LD_PIE
++      save_switch (LD_PIE_SPEC, 0, NULL, /*validated=*/true, /*known=*/false);
++#endif
++      /* These are passed straight down to collect2 so we have to break
++	 it up like this.  */
++      if (HAVE_LD_NOW_SUPPORT)
++	{
++	  add_infile ("-z", "*");
++	  add_infile ("now", "*");
++	}
++      if (HAVE_LD_RELRO_SUPPORT)
++	{
++	  add_infile ("-z", "*");
++	  add_infile ("relro", "*");
++	}
++    }
++
+   /* Handle -gtoggle as it would later in toplev.cc:process_options to
+      make the debug-level-gt spec function work as expected.  */
+   if (flag_gtoggle)
+diff --git a/gcc/opts.cc b/gcc/opts.cc
+index ac81d4e4294..03e1fdaf8d3 100644
+--- a/gcc/opts.cc
++++ b/gcc/opts.cc
+@@ -43,6 +43,10 @@ along with GCC; see the file COPYING3.  If not see
+ /* Set by -fcanon-prefix-map.  */
+ bool flag_canon_prefix_map;
+ 
++/* Set by finish_options when flag_stack_protector was set only because of
++   -fhardened.  Yuck.  */
++bool flag_stack_protector_set_by_fhardened_p;
++
+ static void set_Wstrict_aliasing (struct gcc_options *opts, int onoff);
+ 
+ /* Names of fundamental debug info formats indexed by enum
+@@ -1093,6 +1097,9 @@ finish_options (struct gcc_options *opts, struct gcc_options *opts_set,
+       opts->x_flag_section_anchors = 0;
+     }
+ 
++  if (!opts_set->x_flag_auto_var_init && opts->x_flag_hardened)
++    opts->x_flag_auto_var_init = AUTO_INIT_PATTERN;
++
+   if (!opts->x_flag_opts_finished)
+     {
+       /* We initialize opts->x_flag_pie to -1 so that targets can set a
+@@ -1102,7 +1109,8 @@ finish_options (struct gcc_options *opts, struct gcc_options *opts_set,
+ 	  /* We initialize opts->x_flag_pic to -1 so that we can tell if
+ 	     -fpic, -fPIC, -fno-pic or -fno-PIC is used.  */
+ 	  if (opts->x_flag_pic == -1)
+-	    opts->x_flag_pie = DEFAULT_FLAG_PIE;
++	    opts->x_flag_pie = (opts->x_flag_hardened
++				? /*-fPIE*/ 2 : DEFAULT_FLAG_PIE);
+ 	  else
+ 	    opts->x_flag_pie = 0;
+ 	}
+@@ -1117,9 +1125,23 @@ finish_options (struct gcc_options *opts, struct gcc_options *opts_set,
+     }
+ 
+   /* We initialize opts->x_flag_stack_protect to -1 so that targets
+-     can set a default value.  */
++     can set a default value.  With --enable-default-ssp or -fhardened
++     the default is -fstack-protector-strong.  */
+   if (opts->x_flag_stack_protect == -1)
+-    opts->x_flag_stack_protect = DEFAULT_FLAG_SSP;
++    {
++      /* This should check FRAME_GROWS_DOWNWARD, but on some targets it's
++	 defined in such a way that it uses flag_stack_protect which can't
++	 be used here.  Moreover, some targets like BPF don't support
++	 -fstack-protector at all but we don't know that here.  So remember
++	 that flag_stack_protect was set at the behest of -fhardened.  */
++      if (opts->x_flag_hardened)
++	{
++	  opts->x_flag_stack_protect = SPCT_FLAG_STRONG;
++	  flag_stack_protector_set_by_fhardened_p = true;
++	}
++      else
++	opts->x_flag_stack_protect = DEFAULT_FLAG_SSP;
++    }
+ 
+   if (opts->x_optimize == 0)
+     {
+@@ -2461,6 +2483,29 @@ parse_and_check_patch_area (const char *arg, bool report_error,
+   free (patch_area_arg);
+ }
+ 
++/* Print options enabled by -fhardened.  */
++
++static void
++print_help_hardened ()
++{
++  printf ("%s\n", "The following options are enabled by -fhardened:");
++  printf ("  %s=%d\n", "-D_FORTIFY_SOURCE",
++	  (TARGET_GLIBC_MAJOR == 2 && TARGET_GLIBC_MINOR >= 35) ? 3 : 2);
++  printf ("  %s\n", "-D_GLIBCXX_ASSERTIONS");
++  printf ("  %s\n", "-ftrivial-auto-var-init=pattern");
++#ifdef HAVE_LD_PIE
++  printf ("  %s  %s\n", "-fPIE", "-pie");
++#endif
++  if (HAVE_LD_NOW_SUPPORT)
++    printf ("  %s\n", "-Wl,-z,now");
++  if (HAVE_LD_RELRO_SUPPORT)
++    printf ("  %s\n", "-Wl,-z,relro");
++  printf ("  %s\n", "-fstack-protector-strong");
++  printf ("  %s\n", "-fstack-clash-protection");
++  printf ("  %s\n", "-fcf-protection=full");
++  putchar ('\n');
++}
++
+ /* Print help when OPT__help_ is set.  */
+ 
+ void
+@@ -2576,6 +2621,8 @@ print_help (struct gcc_options *opts, unsigned int lang_mask,
+ 	}
+       else if (lang_flag != 0)
+ 	*pflags |= lang_flag;
++      else if (strncasecmp (a, "hardened", len) == 0)
++	print_help_hardened ();
+       else
+ 	warning (0,
+ 		 "unrecognized argument to %<--help=%> option: %q.*s",
+diff --git a/gcc/opts.h b/gcc/opts.h
+index 00f377f9ca7..d89c5de8114 100644
+--- a/gcc/opts.h
++++ b/gcc/opts.h
+@@ -344,6 +344,7 @@ struct cl_option_handlers
+ /* Hold command-line options associated with stack limitation.  */
+ extern const char *opt_fstack_limit_symbol_arg;
+ extern int opt_fstack_limit_register_no;
++extern bool flag_stack_protector_set_by_fhardened_p;
+ 
+ /* Input file names.  */
+ 
+diff --git a/gcc/testsuite/c-c++-common/fhardened-1.S b/gcc/testsuite/c-c++-common/fhardened-1.S
+new file mode 100644
+index 00000000000..026c7afbaad
+--- /dev/null
++++ b/gcc/testsuite/c-c++-common/fhardened-1.S
+@@ -0,0 +1,6 @@
++/* { dg-do preprocess { target pie } } */
++/* { dg-options "-fhardened" } */
++
++#if __PIE__ != 2
++# error "-fPIE not enabled"
++#endif
+diff --git a/gcc/testsuite/c-c++-common/fhardened-1.c b/gcc/testsuite/c-c++-common/fhardened-1.c
+new file mode 100644
+index 00000000000..dd3cde93805
+--- /dev/null
++++ b/gcc/testsuite/c-c++-common/fhardened-1.c
+@@ -0,0 +1,14 @@
++/* { dg-do compile } */
++/* { dg-options "-fhardened -O" } */
++
++#ifndef __SSP_STRONG__
++# error "-fstack-protector-strong not enabled"
++#endif
++
++#if _FORTIFY_SOURCE < 2
++# error "_FORTIFY_SOURCE not enabled"
++#endif
++
++#ifndef _GLIBCXX_ASSERTIONS
++# error "_GLIBCXX_ASSERTIONS not enabled"
++#endif
+diff --git a/gcc/testsuite/c-c++-common/fhardened-10.c b/gcc/testsuite/c-c++-common/fhardened-10.c
+new file mode 100644
+index 00000000000..431bd5d3a80
+--- /dev/null
++++ b/gcc/testsuite/c-c++-common/fhardened-10.c
+@@ -0,0 +1,10 @@
++/* { dg-do compile } */
++/* { dg-options "-fhardened -D_FORTIFY_SOURCE=1" } */
++
++#if _FORTIFY_SOURCE != 1
++# error "_FORTIFY_SOURCE != 1"
++#endif
++
++#ifndef _GLIBCXX_ASSERTIONS
++# error "_GLIBCXX_ASSERTIONS disabled when it should not be"
++#endif
+diff --git a/gcc/testsuite/c-c++-common/fhardened-11.c b/gcc/testsuite/c-c++-common/fhardened-11.c
+new file mode 100644
+index 00000000000..b8fd65a960c
+--- /dev/null
++++ b/gcc/testsuite/c-c++-common/fhardened-11.c
+@@ -0,0 +1,10 @@
++/* { dg-do compile } */
++/* { dg-options "-fhardened -O -D_FORTIFY_SOURCE_ -D_GLIBCXX_ASSERTIONS_" } */
++
++#ifndef _FORTIFY_SOURCE
++# error "_FORTIFY_SOURCE disabled when it should not be"
++#endif
++
++#ifndef _GLIBCXX_ASSERTIONS
++# error "_GLIBCXX_ASSERTIONS disabled when it should not be"
++#endif
+diff --git a/gcc/testsuite/c-c++-common/fhardened-12.c b/gcc/testsuite/c-c++-common/fhardened-12.c
+new file mode 100644
+index 00000000000..340a7bdad6d
+--- /dev/null
++++ b/gcc/testsuite/c-c++-common/fhardened-12.c
+@@ -0,0 +1,11 @@
++/* { dg-do compile } */
++/* { dg-options "-fhardened -fdump-tree-gimple" } */
++
++int
++foo ()
++{
++  int i;
++  return i;
++}
++
++/* { dg-final { scan-tree-dump ".DEFERRED_INIT" "gimple" } } */
+diff --git a/gcc/testsuite/c-c++-common/fhardened-13.c b/gcc/testsuite/c-c++-common/fhardened-13.c
+new file mode 100644
+index 00000000000..629ff6ff94b
+--- /dev/null
++++ b/gcc/testsuite/c-c++-common/fhardened-13.c
+@@ -0,0 +1,6 @@
++/* { dg-do compile { target pie } } */
++/* { dg-options "-fhardened" } */
++
++#if __PIE__ != 2
++# error "-fPIE not enabled"
++#endif
+diff --git a/gcc/testsuite/c-c++-common/fhardened-14.c b/gcc/testsuite/c-c++-common/fhardened-14.c
+new file mode 100644
+index 00000000000..bfcd000fe6a
+--- /dev/null
++++ b/gcc/testsuite/c-c++-common/fhardened-14.c
+@@ -0,0 +1,6 @@
++/* { dg-do compile { target pie } } */
++/* { dg-options "-fhardened -fno-PIE" } */
++
++#ifdef __PIE__
++# error "PIE enabled when it should not be"
++#endif
+diff --git a/gcc/testsuite/c-c++-common/fhardened-2.c b/gcc/testsuite/c-c++-common/fhardened-2.c
+new file mode 100644
+index 00000000000..aeba4e40a42
+--- /dev/null
++++ b/gcc/testsuite/c-c++-common/fhardened-2.c
+@@ -0,0 +1,9 @@
++/* { dg-do compile } */
++/* { dg-options "-fhardened -fstack-protector" } */
++
++#ifdef __SSP_STRONG__
++# error "-fstack-protector-strong enabled when it should not be"
++#endif
++#ifndef __SSP__
++# error "-fstack-protector not enabled"
++#endif
+diff --git a/gcc/testsuite/c-c++-common/fhardened-3.c b/gcc/testsuite/c-c++-common/fhardened-3.c
+new file mode 100644
+index 00000000000..105e013d734
+--- /dev/null
++++ b/gcc/testsuite/c-c++-common/fhardened-3.c
+@@ -0,0 +1,12 @@
++/* { dg-do compile } */
++/* { dg-options "-fhardened -O0" } */
++/* Test that we don't get any diagnostic coming from libc headers.  */
++
++#include <stdio.h>
++
++/* The most useful C program known to man.  */
++
++int
++main ()
++{
++}
+diff --git a/gcc/testsuite/c-c++-common/fhardened-5.c b/gcc/testsuite/c-c++-common/fhardened-5.c
+new file mode 100644
+index 00000000000..340a7bdad6d
+--- /dev/null
++++ b/gcc/testsuite/c-c++-common/fhardened-5.c
+@@ -0,0 +1,11 @@
++/* { dg-do compile } */
++/* { dg-options "-fhardened -fdump-tree-gimple" } */
++
++int
++foo ()
++{
++  int i;
++  return i;
++}
++
++/* { dg-final { scan-tree-dump ".DEFERRED_INIT" "gimple" } } */
+diff --git a/gcc/testsuite/c-c++-common/fhardened-6.c b/gcc/testsuite/c-c++-common/fhardened-6.c
+new file mode 100644
+index 00000000000..478caf9895b
+--- /dev/null
++++ b/gcc/testsuite/c-c++-common/fhardened-6.c
+@@ -0,0 +1,11 @@
++/* { dg-do compile } */
++/* { dg-options "-fhardened -ftrivial-auto-var-init=uninitialized -fdump-tree-gimple" } */
++
++int
++foo ()
++{
++  int i;
++  return i;
++}
++
++/* { dg-final { scan-tree-dump-not ".DEFERRED_INIT" "gimple" } } */
+diff --git a/gcc/testsuite/c-c++-common/fhardened-7.c b/gcc/testsuite/c-c++-common/fhardened-7.c
+new file mode 100644
+index 00000000000..daf91f2ca25
+--- /dev/null
++++ b/gcc/testsuite/c-c++-common/fhardened-7.c
+@@ -0,0 +1,7 @@
++/* { dg-do compile { target pie } } */
++/* { dg-options "-fhardened -fpie" } */
++
++/* -fpie takes precedence over -fhardened */
++#if __PIE__ != 1
++# error "__PIE__ != 1"
++#endif
+diff --git a/gcc/testsuite/c-c++-common/fhardened-8.c b/gcc/testsuite/c-c++-common/fhardened-8.c
+new file mode 100644
+index 00000000000..87e2750efe2
+--- /dev/null
++++ b/gcc/testsuite/c-c++-common/fhardened-8.c
+@@ -0,0 +1,7 @@
++/* { dg-do compile { target pie } } */
++/* { dg-options "-fhardened -fPIC" } */
++
++/* -fPIC takes precedence over -fhardened */
++#ifdef __PIE__
++# error "PIE enabled when it should not be"
++#endif
+diff --git a/gcc/testsuite/c-c++-common/fhardened-9.c b/gcc/testsuite/c-c++-common/fhardened-9.c
+new file mode 100644
+index 00000000000..f64e7eba56c
+--- /dev/null
++++ b/gcc/testsuite/c-c++-common/fhardened-9.c
+@@ -0,0 +1,6 @@
++/* { dg-do compile } */
++/* { dg-options "-fhardened -U_FORTIFY_SOURCE -U_GLIBCXX_ASSERTIONS" } */
++
++#if defined(_FORTIFY_SOURCE) || defined(_GLIBCXX_ASSERTIONS)
++# error "hardening enabled when it should not be"
++#endif
+diff --git a/gcc/testsuite/gcc.misc-tests/help.exp b/gcc/testsuite/gcc.misc-tests/help.exp
+index 52b9cb0ab90..15d618a2528 100644
+--- a/gcc/testsuite/gcc.misc-tests/help.exp
++++ b/gcc/testsuite/gcc.misc-tests/help.exp
+@@ -151,6 +151,8 @@ foreach cls { "ada" "c" "c++" "d" "fortran" "go" \
+ # Listing only excludes gives empty results.
+ check_for_options c "--help=^joined,^separate" "" "" ""
+ 
++check_for_options c "--help=hardened" "The following options are enabled by -fhardened" "" ""
++
+ if [ info exists prev_columns ] {
+     # Reset the enviroment variable to its oriuginal value.
+     set env(COLUMNS) $prev_columns
+diff --git a/gcc/testsuite/gcc.target/i386/cf_check-6.c b/gcc/testsuite/gcc.target/i386/cf_check-6.c
+new file mode 100644
+index 00000000000..73b78dce889
+--- /dev/null
++++ b/gcc/testsuite/gcc.target/i386/cf_check-6.c
+@@ -0,0 +1,12 @@
++/* { dg-do compile } */
++/* { dg-options "-O2 -fhardened -mno-manual-endbr" } */
++/* { dg-final { scan-assembler-times {\mendbr} 1 } } */
++/* Test that -fhardened enables CET.  */
++
++extern void bar (void) __attribute__((__cf_check__));
++
++void
++foo (void)
++{
++  bar ();
++}
+diff --git a/gcc/toplev.cc b/gcc/toplev.cc
+index db62e3e995e..68d744630e1 100644
+--- a/gcc/toplev.cc
++++ b/gcc/toplev.cc
+@@ -1575,6 +1575,12 @@ process_options (bool no_backend)
+ 		  "where the stack grows from lower to higher addresses");
+       flag_stack_clash_protection = 0;
+     }
++  else if (flag_hardened
++	   && !flag_stack_clash_protection
++	   /* Don't enable -fstack-clash-protection when -fstack-check=
++	      is used: it would result in confusing errors.  */
++	   && flag_stack_check == NO_STACK_CHECK)
++    flag_stack_clash_protection = 1;
+ 
+   /* We cannot support -fstack-check= and -fstack-clash-protection at
+      the same time.  */
+@@ -1590,8 +1596,9 @@ process_options (bool no_backend)
+      target already uses a soft frame pointer, the transition is trivial.  */
+   if (!FRAME_GROWS_DOWNWARD && flag_stack_protect)
+     {
+-      warning_at (UNKNOWN_LOCATION, 0,
+-		  "%<-fstack-protector%> not supported for this target");
++      if (!flag_stack_protector_set_by_fhardened_p)
++	warning_at (UNKNOWN_LOCATION, 0,
++		    "%<-fstack-protector%> not supported for this target");
+       flag_stack_protect = 0;
+     }
+   if (!flag_stack_protect)
+
+base-commit: 540a1d936d8f73f5e2efdefafd8342ec27773ae8
+-- 
