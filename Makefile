@@ -53,7 +53,6 @@ gbp.json: world
 %.copy_config: files = $(shell find $(machine)/configs/$* ! -type l -print)
 %.copy_config: $$(files) container
 	buildah --storage-driver=btrfs unshare --mount CHROOT=$(container) sh -c 'rm -rf $$CHROOT/$(dirname)'
-	buildah --storage-driver=btrfs unshare --mount CHROOT=$(container) sh -c 'cd $$CHROOT$(repos_dir)/gentoo; ls -larp $$CHROOT$(repos_dir)/gentoo && git checkout testing'
 	buildah --storage-driver=btrfs copy $(container) "$(CURDIR)"/$(machine)/configs/$* /$(dirname)
 	touch $@
 
