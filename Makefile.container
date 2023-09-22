@@ -17,6 +17,7 @@ world: ## Update @world and remove unneeded pkgs & binpkgs
 	ln -s /var/db/repos/gentoo/profiles/default/linux/amd64/17.1/hardened/selinux /etc/portage/make.profile
 	mkdir -p /var/cache/distfiles/git3-src
 	chown -R portage:portage /var/cache/distfiles/git3-src
+	cat /etc/portage/make.conf
 	MAKELEVEL=0 emerge $(opts) --usepkg=y @world app-portage/gentoolkit
 	sed -i 's/COMMON_FLAGS="-O2 -pipe"/COMMON_FLAGS="-O2 -pipe -fhardened"/g' /etc/portage/make.conf
 	cat /etc/portage/make.conf
