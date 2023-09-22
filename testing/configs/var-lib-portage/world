@@ -1,5 +1,4 @@
 app-containers/podman
-dev-lang/perl
 mail-filter/spamassassin
 net-proxy/squid
 net-vpn/libreswan
