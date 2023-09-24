@@ -8,7 +8,7 @@ BUILD_PUBLISHER_URL ?= http://localhost/
 
 archive := build.tar.gz
 container := $(machine)-root
-chroot := http_proxy=http://192.168.0.1:8081 https_proxy=http://192.168.0.1:8081 buildah run \
+chroot := buildah run \
   --storage-driver=btrfs \
   --volume /proc:/proc \
   --mount=type=tmpfs,tmpfs-mode=755,destination=/run $(container) \
@@ -31,7 +31,7 @@ container: stage3-image := docker.io/gentoo/stage3:$(shell cat $(stage3-config))
 container: platform := linux/$(shell cat $(platform-config))
 container: $(stage3-config) $(platform-config)  ## Build the container
 	-buildah --storage-driver=btrfs rm $(container)
-	http_proxy=http://192.168.0.1:8081 https_proxy=http://192.168.0.1:8081 buildah --storage-driver=btrfs --name $(container) from --platform=$(platform) --cap-add=CAP_SYS_PTRACE $(stage3-image)
+	buildah --storage-driver=btrfs --name $(container) from --platform=$(platform) --cap-add=CAP_SYS_PTRACE $(stage3-image)
 	buildah --storage-driver=btrfs config --env FEATURES="-cgroup -ipc-sandbox -mount-sandbox -network-sandbox -pid-sandbox -userfetch -usersync binpkg-multi-instance buildpkg noinfo unmerge-orphans" $(container)
 	touch $@
 
