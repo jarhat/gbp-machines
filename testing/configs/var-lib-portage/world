@@ -7,3 +7,8 @@ www-servers/nginx
 sys-kernel/vanilla-sources
 dev-libs/elfutils
 sys-boot/grub
+sys-fs/cryptsetup
+sys-fs/btrfs-progs
+sys-apps/busybox
+sys-kernel/dracut
+sys-boot/efibootmgr
