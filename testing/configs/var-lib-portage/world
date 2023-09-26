@@ -4,4 +4,6 @@ net-proxy/squid
 net-vpn/libreswan
 www-servers/nginx
 
-sys-kernel/vanilla-sources 
+sys-kernel/vanilla-sources
+dev-libs/elfutils
+sys-boot/grub
