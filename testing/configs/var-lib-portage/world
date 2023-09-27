@@ -11,4 +11,5 @@ sys-fs/cryptsetup
 sys-fs/btrfs-progs
 sys-apps/busybox
 sys-kernel/genkernel
+sys-kernel/dracut
 sys-boot/efibootmgr
