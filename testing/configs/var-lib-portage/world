@@ -1,3 +1,7 @@
+# dev
+app-editors/vim
+app-misc/ranger
+
 app-containers/podman
 mail-filter/spamassassin
 net-proxy/squid

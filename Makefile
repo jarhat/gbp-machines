@@ -103,7 +103,7 @@ emerge-info.txt: chroot
 
 push: packages  ## Push artifact (to GBP)
 	$(MAKE) machine=$(machine) build=$(build) $(archive)
-	gbp --url=$(BUILD_PUBLISHER_URL) pull $(machine) $(build)
+	/usr/local/bin/gbp --url=$(BUILD_PUBLISHER_URL) pull $(machine) $(build)
 	touch $@
 
 
